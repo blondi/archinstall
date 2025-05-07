@@ -134,7 +134,8 @@ arch-chroot /mnt
 ######################
 
 #[DEPENDENCIES]
-pacman -S sudo grub grub-btrfs efibootmgr networkmanager openssh iptables-nft ipset firewalld acpid reflector man-db man-pages texinfo bluez bluez-utils pipewire alsa-utils pipewire-pulse pipewire-jack ttf-meslo-nerd alacritty firefox
+pacman -S sudo grub grub-btrfs efibootmgr networkmanager openssh iptables-nft ipset firewalld acpid polkit reflector man-db man-pages texinfo bluez bluez-utils pipewire alsa-utils pipewire-pulse pipewire-jack ttf-meslo-nerd alacritty firefox
+#NVIDIA, add: nvidia-dkms nvidia-utils lib32-nvidia-utils egl-wayland
 
 #[LOCALE]
 ln -sF /usr/share/zoneinfo/Europe/Brussels /etc/localtime
@@ -159,6 +160,7 @@ echo "blondi ALL=(ALL) ALL" >> /etc/sudoers.d/blondi
 #[MKINITCPIO]
 vim /etc/mkinitcpio.conf
 #MODULES=(btrfs)
+#=> if nvidia, add also after btrfs nvidia nvidia_modeset nvidia_uvm nvidia_drm
 #HOOKS=( ... encrypt lvm2 filesystems ... )
 mkinitcpio -p linux
 
@@ -205,3 +207,10 @@ sudo timeshift --create --comments "[message]" --tags D
 sudo systemctl edit --full grub-btrfsd
 #ExecStart= ... remove /.snapshot and replace with "-t"
 sudo grub-mkconfig -o /boot/grub/grub.cfg
+
+sudo pacman -S gnome
+sudo systemctl enable gdm
+
+#[ENV for HYPRLAND config]
+#env = LIBVA_DRIVER_NAME,nvidia
+#env = __GLX_VENDOR_LIBRARY_NAME,nvidia
