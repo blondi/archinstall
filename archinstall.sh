@@ -66,66 +66,55 @@ sgdisk --zap-all --clear $disk
 partprobe $disk
 
 #Overwrite existing data with random values
-cryptsetup open --type plain -d /dev/urandom $disk cryptarget #target is temporary for writting random data
-dd if=/dev/zero of=/dev/mapper/cryptarget oflag=direct bs=1M status=progress
-cryptsetup close cryptarget
+dd if=/dev/zero of=/$disk oflag=direct bs=4096 status=progress
 
-# creation of the partitions
-#[Command]: o #create new empty partition table
-#[Command]: Y
-#[Command]: n #create new partion
-#[Command]: #partition number
-#[Command]: #partition first sector
-#[Command]: +1G #partition last sector (size of the partition)
-#[Command]: ef00 #partition code EFI system partition
-
-sgdisk -n 1:0:+512MiB -t 1:ef00 -c 1:ESP -n 2:0:0 -t 2:8309 -c 2:LUKS $disk
-
-#[Command]: n #create new partion
-#[Command]: #partition number
-#[Command]: #partition first sector
-#[Command]: #partition last sector (size of the partition)
-#[Command]: #partition code Linux filesystem
-#[Command]: w #write gpt data
-#[Command]: Y
+#use 512MiB if grub for ef00
+sgdisk -n 1:0:+1GiB -t 1:ef00 -c 1:ESP -n 2:0:0 -t 2:8309 -c 2:LUKS $disk
+partprobe $disk
+sgdisk -p $disk
 
 # formatting partitions
 #[LUKS]
-cryptsetup luksFormat /dev/disk_partition_name #(p2)
-#YES
-#Enter passphrase for disk encryption
-cryptsetup luksOpen /dev/disk_partition_name cryptroot
-#Enter passphrase for disk encryption
+cryptsetup --type luks2 -v -y luksFormat ${disk}p2
+cryptsetup open ${disk}p2 cryptroot
+mkfs.vfat -F32 ${disk}p1 #(p1)
 mkfs.btrfs /dev/mapper/cryptroot
+
 mount /dev/mapper/cryptroot /mnt
 cd /mnt
 btrfs subvolume create @
 btrfs subvolume create @home
+btrfs subvolume create @.snapshots
+btrfs subvolume create @pkg
+btrfs subvolume create @log
 cd
 unmount /mnt
 
 mount -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,subvol=@ /dev/mapper/cryptroot /mnt
-mkdir /mnt/home
+mkdir /mnt/{home,boot,.snapshots,var/cache/pacman/pkg,var/log}
 mount -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,subvol=@home /dev/mapper/cryptroot /mnt/home
-mkfs.fat -F32 /dev/disk_partition_name #(p1)
-mkdir /mnt/boot
-mount /dev/disk_partition_name /mnt/boot
+mount -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,subvol=@.snapshots /dev/mapper/cryptroot /mnt/.snapshots
+mount -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,subvol=@pkg /dev/mapper/cryptroot /mnt/var/cache/pacman/pkg
+mount -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,subvol=@log /dev/mapper/cryptroot /mnt/var/log
+mount ${disk}p1 /mnt/boot
 
 #[PACMAN]
 #/etc/pacman.conf
+#ILoveCandy
+#Color
 #[multilib]
 
 #[MIRROR LIST]
-reflector -c Belgium -a 12 --sort rate --save /etc/pacman.d/mirrorlist
+reflector -c Belgium --latest 5 --sort rate --save /etc/pacman.d/mirrorlist
 
 #[PACKAGES]
-pacstrap /mnt base base-devel linux linux-headers linux-firmware btrfs-progs lvm2 intel-ucode git vim
+pacstrap /mnt base base-devel linux linux-headers linux-firmware btrfs-progs cryptsetup lvm2 intel-ucode git neovim
 
 #[FSTAB]
 genfstab -U -p /mnt >> /mnt/etc/fstab
 
 #[STEP INTO SYSTEM]
-arch-chroot /mnt
+arch-chroot /mnt /bin/bash
 
 #------------------------------------------------------------------------------------------------------------
 
@@ -134,67 +123,128 @@ arch-chroot /mnt
 ######################
 
 #[DEPENDENCIES]
-pacman -S sudo grub grub-btrfs efibootmgr networkmanager openssh iptables-nft ipset firewalld acpid polkit reflector man-db man-pages texinfo bluez bluez-utils pipewire alsa-utils pipewire-pulse pipewire-jack ttf-meslo-nerd alacritty firefox
+pacman -S sudo networkmanager openssh iptables-nft ipset firewalld acpid polkit reflector man-db man-pages zram-generator bash-completion htop ttf-meslo-nerd  terminus-font firefox gnome gnome-tweaks gnome-shell-extensions
+#add grub grub-btrfs for grub
 #NVIDIA, add: nvidia-dkms nvidia-utils lib32-nvidia-utils egl-wayland
-
-#[LOCALE]
-ln -sF /usr/share/zoneinfo/Europe/Brussels /etc/localtime
-hwclock --systohc
-vim /etc/locale.gen #=> uncomment fr_BE.UTF-8
-locale-gen
-echo "LANG=fr_BE.UTF-8" >> /etc/locale.conf
 
 #[HOSTNAME]
 echo "arch" >> /etc/hostname
 #/etc/hosts
 #replace hostname with new hostname on localdomain
+#127.0.0.1 localhost
+#::1 localhost.localdomain localhost
+#127.0.1.1 <hostname>.localdomain <hostname>
+
+#[LOCALE]
+ln -sF /usr/share/zoneinfo/Europe/Brussels /etc/localtime
+hwclock --systohc
+vim /etc/locale.gen #=> uncomment en_US.UTF-8
+echo "LANG=en_US.UTF-8" >> /etc/locale.conf
+locale-gen
+
+#[KEYBOARD]
+#/etc/vconsole.conf
+echo "FONT=ter-v22n" >> /etc/vconsole.conf
+echo "KEYMAP=be-latin1" >> /etc/vconsole.conf
+
+#[EDITOR]
+echo "EDITOR=nvim" > /etc/environment
+echo "VISUAL=nvim" >> /etc/environment
 
 #[ROOTUSER]
 passwd
 
 #[USER]
-useradd -m -g users -G wheel blondi
+useradd -m -g users -G wheel -s /bin/bash blondi
 passwd blondi
-echo "blondi ALL=(ALL) ALL" >> /etc/sudoers.d/blondi
-
-#[MKINITCPIO]
-vim /etc/mkinitcpio.conf
-#MODULES=(btrfs)
-#=> if nvidia, add also after btrfs nvidia nvidia_modeset nvidia_uvm nvidia_drm
-#HOOKS=( ... encrypt lvm2 filesystems ... )
-mkinitcpio -p linux
-
-#[GRUB]
-grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
-grub-mkconfig -o /boot/grub/grub.cfg
-blkid /dev/disk_partition_name #GET UUID
-vim /etc/default/grub
-#GRUB_CMDLINE_LINUX_DEFAULT= ... cryptdevice=UUID=uuidnumbers:cryptroot root=dev/mapper/cryptroot"
-grub-mkconfig -o /boot/grub/grub.cfg
+echo "blondi ALL=(ALL:ALL) ALL" >> /etc/sudoers.d/blondi
 
 #[SERVICES]
-systemctl enable NetworkManager
+systemctl enable NetworkManager #network
 #systemctl enable bluetooth
 #systemctl enable sshd
 #systemctl enable firewalld
 #systemctl enable reflector.timer
-#systemctl enable fstrim.timer
-#systemctl enable acpid
+systemctl enable fstrim.timer #optimization ssd
+systemctl enable acpid
+systemctl enable gdm
+#=> for wireless, use nmtui
 
+#[MKINITCPIO]
+vim /etc/mkinitcpio.conf
+MODULES=(btrfs)
+#=> if nvidia, add also after btrfs nvidia nvidia_modeset nvidia_uvm nvidia_drm ???
+BINARIES=(/usr/bin/btrfs)
+HOOKS=(base udev autodetect microcode modconf kms keyboard keymap consolefont block encrypt lvm2 filesystems fsck)
+#+ move keyboard before autodetect
+mkinitcpio -p linux
+
+#[SYSTEMD-BOOT]
+bootctl --esp-path=/boot install
+cat > /boot/loader/loader.conf <<EOF
+default arch.conf
+timeout 3
+console-mode max
+editor yes
+EOF
+
+blkid -s UUID -o value ${disk}p2
+touch /boot/loader/entries/arch.conf
+#insert
+#title Arch Linux (linux)
+#linux /vmlinuz-linux
+#initrd /initramfs-linux.img
+#options cryptdevice=PARTUUID=[PARUUID]:root root=/dev/mapper/root rootflags=subvol=@ rw rootfstype=btrfs
+
+cp /boot/loader/entries/arch.conf /boot/loader/entries/arch-fallback.conf
+#insert
+#title Arch Linux (linux-fallback)
+#linux /vmlinuz-linux
+#initrd /initramfs-linux-fallback.img
+#options cryptdevice=PARTUUID=[PARUUID]:root root=/dev/mapper/root rootflags=subvol=@ rw rootfstype=btrfs
+
+bootctl list
+
+#[SYSTEMD-BOOT UPDATE]
+sudo mkdir /etc/pacman.d/hooks
+#create /etc/pacman.d/hooks/100-systemd-boot.hook
+#[Trigger]
+#Type = Package
+#Operation = Upgrade
+#Target = systemd
+#
+#[Action]
+#Description = Updating systemd-boot
+#When = PostTransaction
+#Exec = /usr/bin/bootctl update
+
+
+exit
+umount -R /mnt
+
+reboot
 #------------------------------------------------------------------------------------------------
+
+
+#[CHECKS AFTER INSTALL]
+systemctl --failed
+journalctl -p 3 -xb
+
+#[ZRAM]
+#create /etc/systemd/zram-generator.conf
+#[zram0]
+#zram-size = min(ram / 2, 8192)
+#compression-algorithm = zstd
+sudo systemctl enable systemd-zram-setup@zram0.service
+sudo systemctl start systemd-zram-setup@zram0.service
+lsblk #should see zram there
+#check with zramctl
 
 #[YAY]
 sudo pacman -S --needed git base-devel
 git clone https://aur.archlinux.org/yay.git
 cd yay
 makepkg -si
-
-#[ZRAM]
-yay -S zramd
-sudo systemctl enable --now zramd.service
-lsblk #should see zram there
-
-sudo vim /etc/default/zramd #change max_size=16384
 
 #[AUTO CPU FREQ]
 yay -S auto-cpufreq
@@ -203,13 +253,6 @@ sudo systemctl enable --now auto-cpufreq.service
 #[TIMESHIFT]
 yay -S timeshift timeshift-autosnap
 sudo timeshift --create --comments "[message]" --tags D
-
-sudo systemctl edit --full grub-btrfsd
-#ExecStart= ... remove /.snapshot and replace with "-t"
-sudo grub-mkconfig -o /boot/grub/grub.cfg
-
-sudo pacman -S gnome
-sudo systemctl enable gdm
 
 #[ENV for HYPRLAND config]
 #env = LIBVA_DRIVER_NAME,nvidia
