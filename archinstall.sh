@@ -76,11 +76,11 @@ sgdisk -p $disk
 # formatting partitions
 #[LUKS]
 cryptsetup --type luks2 -v -y luksFormat ${disk}p2
-cryptsetup open ${disk}p2 cryptroot
+cryptsetup open ${disk}p2 root
 mkfs.vfat -F32 ${disk}p1 #(p1)
-mkfs.btrfs /dev/mapper/cryptroot
+mkfs.btrfs /dev/mapper/root
 
-mount /dev/mapper/cryptroot /mnt
+mount /dev/mapper/root /mnt
 cd /mnt
 btrfs subvolume create @
 btrfs subvolume create @home
@@ -90,19 +90,13 @@ btrfs subvolume create @log
 cd
 unmount /mnt
 
-mount -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,subvol=@ /dev/mapper/cryptroot /mnt
-mkdir /mnt/{home,boot,.snapshots,var/cache/pacman/pkg,var/log}
-mount -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,subvol=@home /dev/mapper/cryptroot /mnt/home
-mount -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,subvol=@.snapshots /dev/mapper/cryptroot /mnt/.snapshots
-mount -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,subvol=@pkg /dev/mapper/cryptroot /mnt/var/cache/pacman/pkg
-mount -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,subvol=@log /dev/mapper/cryptroot /mnt/var/log
+mount -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,subvol=@ /dev/mapper/root /mnt
+mkdir -p /mnt/{home,boot,.snapshots,var/cache/pacman/pkg,var/log}
+mount -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,subvol=@home /dev/mapper/root /mnt/home
+mount -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,subvol=@.snapshots /dev/mapper/root /mnt/.snapshots
+mount -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,subvol=@pkg /dev/mapper/root /mnt/var/cache/pacman/pkg
+mount -o noatime,ssd,compress=zstd,space_cache=v2,discard=async,subvol=@log /dev/mapper/root /mnt/var/log
 mount ${disk}p1 /mnt/boot
-
-#[PACMAN]
-#/etc/pacman.conf
-#ILoveCandy
-#Color
-#[multilib]
 
 #[MIRROR LIST]
 reflector -c Belgium --latest 5 --sort rate --save /etc/pacman.d/mirrorlist
@@ -122,9 +116,14 @@ arch-chroot /mnt /bin/bash
 # POST-CONFIGURATION #
 ######################
 
+#[PACMAN]
+#/etc/pacman.conf
+#ILoveCandy
+#Color
+#[multilib]
+
 #[DEPENDENCIES]
 pacman -S sudo networkmanager openssh iptables-nft ipset firewalld acpid polkit reflector man-db man-pages zram-generator bash-completion htop ttf-meslo-nerd  terminus-font firefox gnome gnome-tweaks gnome-shell-extensions
-#add grub grub-btrfs for grub
 #NVIDIA, add: nvidia-dkms nvidia-utils lib32-nvidia-utils egl-wayland
 
 #[HOSTNAME]
@@ -132,13 +131,13 @@ echo "arch" >> /etc/hostname
 #/etc/hosts
 #replace hostname with new hostname on localdomain
 #127.0.0.1 localhost
-#::1 localhost.localdomain localhost
+#::1 localhost
 #127.0.1.1 <hostname>.localdomain <hostname>
 
 #[LOCALE]
 ln -sF /usr/share/zoneinfo/Europe/Brussels /etc/localtime
 hwclock --systohc
-vim /etc/locale.gen #=> uncomment en_US.UTF-8
+nvim /etc/locale.gen #=> uncomment en_US.UTF-8
 echo "LANG=en_US.UTF-8" >> /etc/locale.conf
 locale-gen
 
@@ -146,9 +145,10 @@ locale-gen
 #/etc/vconsole.conf
 echo "FONT=ter-v22n" >> /etc/vconsole.conf
 echo "KEYMAP=be-latin1" >> /etc/vconsole.conf
+echo "XKBLAYOUT=be" >> /etc/vconsole.conf
 
 #[EDITOR]
-echo "EDITOR=nvim" > /etc/environment
+echo "EDITOR=nvim" >> /etc/environment
 echo "VISUAL=nvim" >> /etc/environment
 
 #[ROOTUSER]
@@ -173,7 +173,7 @@ systemctl enable gdm
 #[MKINITCPIO]
 vim /etc/mkinitcpio.conf
 MODULES=(btrfs)
-#=> if nvidia, add also after btrfs nvidia nvidia_modeset nvidia_uvm nvidia_drm ???
+#=> for hyperland only: if nvidia, add also after btrfs nvidia nvidia_modeset nvidia_uvm nvidia_drm ???
 BINARIES=(/usr/bin/btrfs)
 HOOKS=(base udev autodetect microcode modconf kms keyboard keymap consolefont block encrypt lvm2 filesystems fsck)
 #+ move keyboard before autodetect
@@ -199,9 +199,7 @@ touch /boot/loader/entries/arch.conf
 cp /boot/loader/entries/arch.conf /boot/loader/entries/arch-fallback.conf
 #insert
 #title Arch Linux (linux-fallback)
-#linux /vmlinuz-linux
 #initrd /initramfs-linux-fallback.img
-#options cryptdevice=PARTUUID=[PARUUID]:root root=/dev/mapper/root rootflags=subvol=@ rw rootfstype=btrfs
 
 bootctl list
 
