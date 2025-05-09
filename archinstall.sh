@@ -233,8 +233,10 @@ journalctl -p 3 -xb
 #[zram0]
 #zram-size = min(ram / 2, 8192)
 #compression-algorithm = zstd
+sudo systemctl daemon-reload
 sudo systemctl enable systemd-zram-setup@zram0.service
 sudo systemctl start systemd-zram-setup@zram0.service
+zramctl
 lsblk #should see zram there
 #check with zramctl
 
